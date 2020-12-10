@@ -6,7 +6,6 @@ import tensorflow as tf
 from tensorflow.keras import Model, datasets, layers, models, backend
 from tensorflow import keras
 from contextlib import redirect_stdout
-from scipy.special import softmax
 import os, sys
 os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
 
@@ -153,7 +152,6 @@ dense2_cal = np.repeat(dense2, 12, axis=4)
 output1 = np.sum(dense2_nino * w_nino, axis=3) + b_nino
 
 # output2 (calendar month) [tdim,xdim2,ydim2,12]
-#output2 = softmax(np.sum(dense2_cal * w_cal, axis=3) + b_cal, axis=3)
 output2 = np.tanh(np.sum(dense2_cal * w_cal, axis=3) + b_cal)
 
 
