@@ -1,0 +1,218 @@
+#!/usr/bin/env python
+#JHK
+import numpy as np
+from netCDF4 import Dataset
+import tensorflow as tf
+from tensorflow.keras import Model, datasets, layers, models, backend
+from tensorflow import keras
+from contextlib import redirect_stdout
+import os, sys
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]= "gpu_number"
+
+op_train = 'op_training'
+op_test  = 'op_testing'
+op_gpu   = 'option_gpu'
+
+pre_path = 'h_dir/output/pre_model/comb_name/ENensemble/'
+o_path = 'h_dir/output/exp_name/comb_name/ENensemble/'
+
+if op_gpu == 'on':
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    tf.config.experimental.set_memory_growth(gpus[0], True)
+
+#=======================================================================
+# load validation set
+#=======================================================================    
+if op_train == 'on':
+
+    # input
+    f = Dataset('h_dir/dataset/val_inp','r')
+    sst = f.variables['sst'][:,:,:,:]
+    t300 = f.variables['t300'][:,:,:,:]
+    f.close()
+
+    val_tdim, zdim, ydim, xdim = sst.shape
+
+    val_x = np.append(sst, t300, axis=1)
+    del sst, t300
+
+    val_tdim, cdim, ydim, xdim = val_x.shape
+
+    # [val_tdim,zdim,ydim,xdim] -> [val_tdim,xdim,ydim,zdim]
+    val_x = np.swapaxes(val_x, 1, 3)
+    
+    # label [val_tdim,23]
+    f = Dataset('h_dir/dataset/val_lab','r')
+    val_y = f.variables['pr'][:,:,0,0]
+    f.close()
+
+#=======================================================================
+# load test set
+#======================================================================= 
+if op_test == 'on':
+
+    # input
+    f = Dataset('h_dir/dataset/test_inp','r')
+    sst = f.variables['sst'][:,:,:,:]
+    t300 = f.variables['t300'][:,:,:,:]
+    f.close()
+
+    test_tdim, _, ydim, xdim = sst.shape
+
+    test_x = np.append(sst, t300, axis=1)
+    del sst, t300
+
+    test_tdim, zdim, ydim, xdim = test_x.shape
+
+    # [test_tdim,zdim,ydim,xdim] -> [test_tdim,xdim,ydim,zdim]
+    test_x = np.swapaxes(test_x, 1, 3)
+    
+    # label
+    f = Dataset('h_dir/dataset/test_lab','r')
+    test_y = f.variables['pr'][:,:,0,0]
+    f.close()
+
+# make calender month (as one-hot vector)
+if op_train == 'on':   
+    val_z = np.zeros((val_tdim,12))
+    for i in range(val_tdim):
+     mod = i%12
+     val_z[i,mod] = 1
+
+if op_test == 'on':
+    test_z = np.zeros((test_tdim,12))
+    for i in range(test_tdim):
+     mod = i%12
+     test_z[i,mod] = 1
+
+#=======================================================================
+def conv_set(X, n_feat, k_size, act, stride=1, dr_rate=0.0):
+
+    conv = layers.Conv2D(n_feat, k_size, activation=act, 
+                         padding='same', strides=stride)(X)
+
+    conv = layers.Dropout(dr_rate)(conv)    
+
+    return conv
+
+def dense_set(X, n_feat, act, dr_rate=0.0):
+
+    dense = layers.Dense(n_feat, 
+             activation=act)(X)
+
+    dense = layers.Dropout(dr_rate)(dense)
+
+    return dense
+
+def max_pool(X):
+
+    pool = layers.MaxPool2D((2,2), strides=2, padding='same')(X)
+
+    return pool
+
+#=======================================================================
+inputs = tf.keras.Input(shape=(xdim,ydim,cdim))
+
+# conv 1
+conv1 = conv_set(inputs, conv_f, [8,4], 'tanh')
+
+# pool1
+pool1 = max_pool(conv1)
+
+# conv2
+conv2 = conv_set(pool1, conv_f, [4,2], 'tanh')
+
+# pool2
+pool2 = max_pool(conv2)
+
+# conv3
+conv3 = conv_set(pool2, conv_f, [4,2], 'tanh')
+
+# flatten
+flat = layers.Flatten()(conv3)
+
+# dense 1
+dense1 = dense_set(flat, dens_f, 'tanh')
+
+# dense 2
+dense2 = dense_set(dense1, dens_f, 'tanh')
+
+# output1
+output1 = dense_set(dense2, 23, None)
+
+# output2
+output2 = dense_set(dense2, 12, 'softmax')
+
+# model
+model = Model(inputs=inputs, outputs=[output1, output2])
+
+if op_train == 'on':
+
+    # load pre-trained model
+    model = models.load_model(pre_path+'model_last.hdf5')
+
+    # compile
+    model.compile(optimizer=keras.optimizers.RMSprop(learning_rate=0.0005), 
+                  loss=['mse', 'categorical_crossentropy'],
+                  loss_weights=[0.8, 0.2])
+    
+    # run
+    history = model.fit(val_x, [val_y, val_z], batch_size=100, epochs=40, verbose=0)
+
+    model.save(o_path+'model.hdf5')
+
+    history_dict = history.history
+    tr_loss = history_dict['loss']
+
+    # save the model summary, logs
+    with open(o_path+'model_summary.md', 'w') as f:
+        with redirect_stdout(f):
+            model.summary()
+        
+    tr_loss = np.array(tr_loss)
+
+    tr_loss.astype('float32').tofile(o_path+'tr_loss.gdat')
+    
+if op_test == 'on':
+
+    # load best model
+    model = models.load_model(o_path+'model.hdf5')
+
+    # prediction
+    y_hat, z_hat = model.predict(test_x)
+    y_hat, z_hat = np.array(y_hat), np.array(z_hat)
+
+    # save Nino3.4
+    y_hat.astype('float32').tofile(o_path+'nino34.gdat')
+
+    ctl = open(o_path+'nino34.ctl','w')
+    ctl.write('dset ^nino34.gdat\n')
+    ctl.write('undef -9.99e+08\n')
+    ctl.write('xdef   1  linear   0.  2.5\n')
+    ctl.write('ydef   1  linear -90.  2.5\n')
+    ctl.write('zdef  23  linear 1 1\n')
+    ctl.write('tdef '+str(test_tdim)+'  linear jan1980 1yr\n')
+    ctl.write('vars   1\n')
+    ctl.write('p   23   1  pr\n')
+    ctl.write('ENDVARS\n')
+    ctl.close()
+
+    # save calendar month
+    z_hat.astype('float32').tofile(o_path+'month.gdat')
+
+    ctl = open(o_path+'month.ctl','w')
+    ctl.write('dset ^month.gdat\n')
+    ctl.write('undef -9.99e+08\n')
+    ctl.write('xdef   1  linear   0.  2.5\n')
+    ctl.write('ydef   1  linear -90.  2.5\n')
+    ctl.write('zdef  12  linear 1 1\n')
+    ctl.write('tdef '+str(test_tdim)+'  linear jan1980 1yr\n')
+    ctl.write('vars   1\n')
+    ctl.write('p   12   1  pr\n')
+    ctl.write('ENDVARS\n')
+    ctl.close()
+
+

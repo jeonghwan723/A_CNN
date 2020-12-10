@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+import numpy as np
+from tempfile import TemporaryFile
+
+print(' Ensemble Mean')
+
+i_path = 'h_dir/output/exp_name/comb_name/'
+o_path = 'h_dir/output/exp_name/comb_name/'
+
+nino, month = [], []
+for i in range(n_ens):
+    f = open(i_path+'EN'+str(i+1)+'/heatmap_nino.gdat', 'r')
+    tmp = np.fromfile(f, np.float32)
+    nino = np.append(nino, tmp)
+    
+for i in range(n_ens):
+    f = open(i_path+'EN'+str(i+1)+'/heatmap_calendar.gdat', 'r')
+    tmp = np.fromfile(f, np.float32)
+    month = np.append(month, tmp)   
+
+nino = nino.reshape(n_ens,-1,23,6,18)
+tdim = nino.shape[1]
+nino_mean = np.mean(nino,axis=0)
+
+month = month.reshape(n_ens,-1,12,6,18)
+month_mean = np.mean(month,axis=0)
+
+# save Nino3.4
+nino_mean.astype('float32').tofile(o_path+'heatmap_nino.gdat')
+
+ctl = open(o_path+'heatmap_nino.ctl','w')
+ctl.write('dset ^heatmap_nino.gdat\n')
+ctl.write('undef -9.99e+08\n')
+ctl.write('xdef  18  linear   0.  20\n')
+ctl.write('ydef   6  linear -55.  20\n')
+ctl.write('zdef  23  linear 1 1\n')
+ctl.write('tdef '+str(tdim)+'  linear jan1980 1yr\n')
+ctl.write('vars   1\n')
+ctl.write('p   23   1  pr\n')
+ctl.write('ENDVARS\n')
+ctl.close()
+
+# save calendar month
+month_mean.astype('float32').tofile(o_path+'heatmap_calendar.gdat')
+
+ctl = open(o_path+'heatmap_calendar.ctl','w')
+ctl.write('dset ^heatmap_calendar.gdat\n')
+ctl.write('undef -9.99e+08\n')
+ctl.write('xdef  18  linear   0.  20\n')
+ctl.write('ydef   6  linear -55.  20\n')
+ctl.write('zdef  12  linear 1 1\n')
+ctl.write('tdef '+str(tdim)+'  linear jan1980 1yr\n')
+ctl.write('vars   1\n')
+ctl.write('p   12   1  pr\n')
+ctl.write('ENDVARS\n')
+ctl.close()

@@ -1,0 +1,197 @@
+#!/usr/bin/env python
+#JHK
+import numpy as np
+from netCDF4 import Dataset
+import tensorflow as tf
+from tensorflow.keras import Model, datasets, layers, models, backend
+from tensorflow import keras
+from contextlib import redirect_stdout
+from scipy.special import softmax
+import os, sys
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
+
+op_train = 'op_training'
+op_test  = 'op_testing'
+op_gpu   = 'option_gpu'
+
+o_path = 'h_dir/output/exp_name/comb_name/ENensemble/'
+
+if op_gpu == 'on':
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]= "gpu_number"
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    tf.config.experimental.set_memory_growth(gpus[0], True)
+
+#=======================================================================
+# load test input
+#======================================================================= 
+f = Dataset('h_dir/dataset/test_inp','r')
+sst = f.variables['sst'][:,:,:,:]
+t300 = f.variables['t300'][:,:,:,:]
+f.close()
+
+test_tdim, _, ydim, xdim = sst.shape
+test_x = np.append(sst, t300, axis=1)
+del sst, t300
+
+test_tdim, zdim, ydim, xdim = test_x.shape
+xdim2 = int(xdim/4)
+ydim2 = int(ydim/4)
+
+# [test_tdim,zdim,ydim,xdim] -> [test_tdim,xdim,ydim,zdim]
+test_x = np.swapaxes(test_x, 1, 3)
+
+#===================================================================
+# load model
+#===================================================================
+model = models.load_model(o_path+'model.hdf5')
+
+#===================================================================
+# activation conv1 - conv3
+#===================================================================
+conv1 = model.layers[1](test_x)
+max1  = model.layers[2](conv1)
+conv2 = model.layers[3](max1)
+max2  = model.layers[4](conv2)
+conv3 = np.array(model.layers[5](max2)) # [tdim,18,6,35]
+
+#===================================================================
+# get parameters
+#===================================================================
+# dense 1
+w1 = np.array(model.layers[7].get_weights()[0]) # [18*6*35,50]
+b1 = np.array(model.layers[7].get_weights()[1]) # [50]
+
+# dense 2
+w2 = np.array(model.layers[8].get_weights()[0]) # [50,50]
+b2 = np.array(model.layers[8].get_weights()[1]) # [50]
+
+# output 1 (Nino3.4)
+w_nino = np.array(model.layers[9].get_weights()[0]) # [50,23]
+b_nino = np.array(model.layers[9].get_weights()[1]) # [23]
+
+# output 2 (calendar month)
+w_cal = np.array(model.layers[10].get_weights()[0]) # [50,12]
+b_cal = np.array(model.layers[10].get_weights()[1]) # [12]
+
+#===================================================================
+# pre process
+#===================================================================
+# conv3 [tdim,xdim2,ydim2,conv_f] -> [tdim,xdim2,ydim2,conv_f,dens_f]
+conv3 = conv3.reshape(test_tdim, xdim2, ydim2, conv_f, 1)
+conv3 = np.repeat(conv3, dens_f, axis=4)
+
+# w1 [xdim2*ydim2*conv_f,dens_f] -> [tdim,xdim2,ydim2,conv_f,dens_f]
+w1 = w1.reshape(1, xdim2, ydim2, conv_f, dens_f)
+w1 = np.repeat(w1, test_tdim, axis=0)
+
+# b1 [dens_f] -> [tdim,xdim2,ydim2,dens_f]
+b1 = b1.reshape(1,1,1,dens_f)
+b1 = np.repeat(b1, test_tdim, axis=0)
+b1 = np.repeat(b1, xdim2, axis=1)
+b1 = np.repeat(b1, ydim2, axis=2)
+b1 = b1 / (xdim2 * ydim2)
+
+# w2 [dens_f,dens_f] -> [tdim,xdim2,ydim2,dens_f,dens_f]
+w2 = w2.reshape(1,1,1,dens_f,dens_f)
+w2 = np.repeat(w2, test_tdim, axis=0)
+w2 = np.repeat(w2, xdim2, axis=1)
+w2 = np.repeat(w2, ydim2, axis=2)
+
+# b2 [dens_f] -> [tdim,xdim2,ydim2,dens_f]
+b2 = b2.reshape(1,1,1,dens_f)
+b2 = np.repeat(b2, test_tdim, axis=0)
+b2 = np.repeat(b2, xdim2, axis=1)
+b2 = np.repeat(b2, ydim2, axis=2)
+b2 = b2 / (xdim2 * ydim2)
+
+# w_nino [dens_f,23] -> [tdim,xdim2,ydim2,dens_f,23]
+w_nino = w_nino.reshape(1,1,1,dens_f,23)
+w_nino = np.repeat(w_nino, test_tdim, axis=0)
+w_nino = np.repeat(w_nino, xdim2, axis=1)
+w_nino = np.repeat(w_nino, ydim2, axis=2)
+
+# b_nino [23] -> [tdim,xdim2,ydim2,23]
+b_nino = b_nino.reshape(1,1,1,23)
+b_nino = np.repeat(b_nino, test_tdim, axis=0)
+b_nino = np.repeat(b_nino, xdim2, axis=1)
+b_nino = np.repeat(b_nino, ydim2, axis=2)
+b_nino = b_nino / (xdim2 * ydim2)
+
+# w_cal [dens_f,12] -> [tdim,xdim2,ydim2,dens_f,12]
+w_cal = w_cal.reshape(1,1,1,dens_f,12)
+w_cal = np.repeat(w_cal, test_tdim, axis=0)
+w_cal = np.repeat(w_cal, xdim2, axis=1)
+w_cal = np.repeat(w_cal, ydim2, axis=2)
+
+# b_nino [12] -> [tdim,xdim2,ydim2,12]
+b_cal = b_cal.reshape(1,1,1,12)
+b_cal = np.repeat(b_cal, test_tdim, axis=0)
+b_cal = np.repeat(b_cal, xdim2, axis=1)
+b_cal = np.repeat(b_cal, ydim2, axis=2)
+b_cal = b_cal / (xdim2 * ydim2)
+
+#===================================================================
+# calculate heatmap
+#===================================================================
+# dense1 [tdim,xdim2,ydim2,dens_f]
+dense1 = np.tanh(np.sum(conv3 * w1, axis=3) + b1)
+
+# extend dense1 [tdim,xdim2,ydim2,dens_f,dense_f]
+dense1 = dense1.reshape(test_tdim,xdim2,ydim2,dens_f,1)
+dense1 = np.repeat(dense1, dens_f, axis=4)
+
+# dense2 [tdim,xdim2,ydim2,dens_f]
+dense2 = np.tanh(np.sum(dense1 * w2, axis=3) + b2)
+
+# extend dense2 [tdim,xdim2,ydim2,dens_f,23]
+dense2 = dense2.reshape(test_tdim,xdim2,ydim2,dens_f,1)
+dense2_nino = np.repeat(dense2, 23, axis=4)
+dense2_cal = np.repeat(dense2, 12, axis=4)
+
+# output1 (nino3.4) [tdim,xdim2,ydim2,23]
+output1 = np.sum(dense2_nino * w_nino, axis=3) + b_nino
+
+# output2 (calendar month) [tdim,xdim2,ydim2,12]
+#output2 = softmax(np.sum(dense2_cal * w_cal, axis=3) + b_cal, axis=3)
+output2 = np.tanh(np.sum(dense2_cal * w_cal, axis=3) + b_cal)
+
+
+# swapaxis
+output1 = np.swapaxes(output1,1,3) #[tdim,23,ydim2,xdim2]
+output2 = np.swapaxes(output2,1,3) #[tdim,12,ydim2,xdim2]
+ 
+#===================================================================
+# save heatmap for Nino3.4
+#===================================================================
+output1.astype('float32').tofile(o_path+'heatmap_nino.gdat')
+
+ctl = open(o_path+'heatmap_nino.ctl','w')
+ctl.write('dset ^heatmap_nino.gdat\n')
+ctl.write('undef -9.99e+08\n')
+ctl.write('xdef  '+str(xdim2)+'  linear   0.  20\n')
+ctl.write('ydef  '+str(ydim2)+'  linear -55.  20\n')
+ctl.write('zdef  23  linear 1 1\n')
+ctl.write('tdef '+str(test_tdim)+'  linear jan1980 1yr\n')
+ctl.write('vars   1\n')
+ctl.write('p   23   1  pr\n')
+ctl.write('ENDVARS\n')
+ctl.close()
+
+#===================================================================
+# save heatmap for calendar month
+#===================================================================
+output2.astype('float32').tofile(o_path+'heatmap_calendar.gdat')
+
+ctl = open(o_path+'heatmap_calendar.ctl','w')
+ctl.write('dset ^heatmap_calendar.gdat\n')
+ctl.write('undef -9.99e+08\n')
+ctl.write('xdef  '+str(xdim2)+'  linear   0.  20\n')
+ctl.write('ydef  '+str(ydim2)+'  linear -55.  20\n')
+ctl.write('zdef  12  linear 1 1\n')
+ctl.write('tdef '+str(test_tdim)+'  linear jan1980 1yr\n')
+ctl.write('vars   1\n')
+ctl.write('p   12   1  pr\n')
+ctl.write('ENDVARS\n')
+ctl.close()
+
