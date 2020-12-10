@@ -3,9 +3,9 @@ CNN based all-season ENSO forecast model
 
 ## Processes of the Nino3.4 prediction
 
-   - Main training with CMIP5 (csh/1.main_training.sh)
+   - Main training with CMIP5 data (csh/1.main_training.sh)
    
-   - Fine Tuning with SODA (reanalysis) (csh/2.fine_tuning.sh)
+   - Fine Tuning with SODA data (reanalysis) (csh/2.fine_tuning.sh)
    
    - Heatmap analysis (csh/3.heatmap.sh)
    
