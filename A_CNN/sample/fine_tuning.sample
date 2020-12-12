@@ -155,7 +155,7 @@ if op_train == 'on':
     model = models.load_model(pre_path+'model_last.hdf5')
 
     # compile
-    model.compile(optimizer=keras.optimizers.RMSprop(learning_rate=0.0005), 
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0005), 
                   loss=['mse', 'categorical_crossentropy'],
                   loss_weights=[0.8, 0.2])
     
