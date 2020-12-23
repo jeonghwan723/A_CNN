@@ -11,7 +11,7 @@ CNN based all-season ENSO forecast model
    
 ## Data set (netCDF4)
 
-   -  you can download data set here: 
+   -  you can download data set here: https://drive.google.com/file/d/1JxSbxu1bNHqw-FFcLnY-jXWeGxo1t45z/view?usp=sharing
    
    -  The data set consists of the following:
    
