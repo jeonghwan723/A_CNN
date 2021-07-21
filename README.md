@@ -37,8 +37,8 @@ CNN based all-season ENSO forecast model
               Label: [godas.label.1980_2017.nc]
    
 ## Reference
-Ham, Y. G., Kim, J. H., Kim, E. S., & On, K. W. Unified deep learning model for El Niño/Southern Oscillation forecasts by incorporating seasonality in climate data. Science Bulletin 66, https://doi.org/10.1016/j.scib.2021.03.009 (2021).
-Ham, Y. G., Kim, J. H. & Luo, J.-J. Deep learning for multi-year ENSO forecasts. Nature 573, https://doi.org/10.1029/2010JC006695 (2019).
+- Ham, Y. G., Kim, J. H., Kim, E. S., & On, K. W. Unified deep learning model for El Niño/Southern Oscillation forecasts by incorporating seasonality in climate data. Science Bulletin 66, https://doi.org/10.1016/j.scib.2021.03.009 (2021).
+- Ham, Y. G., Kim, J. H. & Luo, J.-J. Deep learning for multi-year ENSO forecasts. Nature 573, https://doi.org/10.1029/2010JC006695 (2019).
 
 ## Requirement (python packages)
 
